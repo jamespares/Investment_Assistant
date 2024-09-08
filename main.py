@@ -1,13 +1,45 @@
 import yfinance as yf
+import openai
 
-def evaluate_stock(symbol):
+def get_stock_symbol(company_name):
     """
-  Evaluates a stock's potential as a long-term investment based on financial metrics,
-  fetching data automatically using yfinance. Includes interest rate sensitivity evaluation.
-  """
+    Translates a company name to its corresponding stock symbol using an LLM.
+    """
 
-    # Fetch data from yfinance
-    stock = yf.Ticker(symbol)
+    # Set up OpenAI API key (replace with your actual key)
+    openai.api_key = "YOUR_API_KEY"
+
+    # Craft a prompt to ask the LLM for the stock ticker
+    prompt = f"What is the stock ticker symbol for the company '{company_name}'?"
+
+    # Call the OpenAI API
+    response = openai.Completion.create(
+        engine="text-davinci-003",  # Or another suitable model
+        prompt=prompt,
+        max_tokens=10,  # Adjust as needed
+        temperature=0.0,  # Keep the response focused
+    )
+
+    # Parse the response and extract the stock ticker
+    stock_symbol = response.choices[0].text.strip()
+
+    return stock_symbol
+
+def evaluate_stock(company_name):
+    """
+    Evaluates a stock's potential as a long-term investment based on financial metrics,
+    fetching data automatically using yfinance after translating the company name to its symbol using an LLM.
+    """
+
+    # Translate company name to stock symbol using the LLM
+    stock_symbol = get_stock_symbol(company_name)
+
+    if stock_symbol is None:
+        print(f"Error: Unable to find stock symbol for '{company_name}'.")
+        return
+
+    # Fetch data from yfinance using the retrieved symbol
+    stock = yf.Ticker(stock_symbol)
     info = stock.info
 
     # Extract necessary financial metrics

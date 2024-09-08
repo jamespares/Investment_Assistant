@@ -102,8 +102,7 @@ def evaluate_interest_rate_sensitivity(sector, debt_to_equity):
 
 # Flask set up
 
-app = Flask(__name__)
-
+app = Flask(__name__, static_folder='/Users/jamespares/Documents/Coding/100 Days of Code - The Complete Python Pro Bootcamp/investment_assistant/static')
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')

@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Blueprint
 import yfinance as yf
 import openai
 
@@ -101,8 +101,12 @@ def evaluate_interest_rate_sensitivity(sector, debt_to_equity):
         return base_sensitivity
 
 # Flask set up
+app = Flask(__name__)
+# Create a blueprint for static files
+blueprint_static = Blueprint('static', __name__, static_folder='static')
+app.register_blueprint(blueprint_static)
 
-app = Flask(__name__, static_folder='/Users/jamespares/Documents/Coding/100 Days of Code - The Complete Python Pro Bootcamp/investment_assistant/static')
+
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')

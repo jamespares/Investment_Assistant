@@ -1,3 +1,4 @@
+from flask import Flask, request, jsonify, render_template
 import yfinance as yf
 import openai
 
@@ -35,8 +36,7 @@ def evaluate_stock(company_name):
     stock_symbol = get_stock_symbol(company_name)
 
     if stock_symbol is None:
-        print(f"Error: Unable to find stock symbol for '{company_name}'.")
-        return
+        return f"Error: Unable to find stock symbol for '{company_name}'."
 
     # Fetch data from yfinance using the retrieved symbol
     stock = yf.Ticker(stock_symbol)
@@ -49,36 +49,37 @@ def evaluate_stock(company_name):
     pe_ratio = info.get("trailingPE", None)
 
     if any(metric is None for metric in [debt_to_equity, roe, sector, pe_ratio]):
-        print("Error: Unable to retrieve all necessary financial data for this stock.")
-        return
+        return "Error: Unable to retrieve all necessary financial data for this stock."
 
     # Evaluate P/E ratio
+    evaluation_result = ""
     if pe_ratio is not None and pe_ratio < 20:
-        print(f"Positive: The P/E ratio of {pe_ratio} suggests the stock is fairly valued or undervalued.")
+        evaluation_result += f"Positive: The P/E ratio of {pe_ratio} suggests the stock is fairly valued or undervalued.\n"
     else:
-        print(f"Consideration: The P/E ratio of {pe_ratio} suggests the stock might be overvalued.")
+        evaluation_result += f"Consideration: The P/E ratio of {pe_ratio} suggests the stock might be overvalued.\n"
 
     # Evaluate ROE
     if roe is not None and roe > 0.15:  # Example: An ROE above 15% is considered good
-        print("Positive: The company has a strong Return on Equity.")
+        evaluation_result += "Positive: The company has a strong Return on Equity.\n"
     elif roe is not None:
-        print(f"Consideration: The Return on Equity of {roe} is relatively low.")
+        evaluation_result += f"Consideration: The Return on Equity of {roe} is relatively low.\n"
 
     # Evaluate interest rate sensitivity
     interest_rate_sensitivity = evaluate_interest_rate_sensitivity(sector, debt_to_equity)
-    print(f"Interest Rate Sensitivity: {interest_rate_sensitivity}")
+    evaluation_result += f"Interest Rate Sensitivity: {interest_rate_sensitivity}\n"
 
     # Display overall debt-to-equity ratio
-    print(f"Debt-to-Equity Ratio: {debt_to_equity}")
+    evaluation_result += f"Debt-to-Equity Ratio: {debt_to_equity}\n"
 
     # Final suggestion
-    print("\nOverall evaluation based on the financial metrics provided.")
+    evaluation_result += "\nOverall evaluation based on the financial metrics provided.\n"
 
+    return evaluation_result
 
 def evaluate_interest_rate_sensitivity(sector, debt_to_equity):
     """
-  Estimates a company's sensitivity to interest rate changes based on sector and debt-to-equity ratio.
-  """
+    Estimates a company's sensitivity to interest rate changes based on sector and debt-to-equity ratio.
+    """
     # Basic sector-based sensitivity (adjust as needed)
     high_sensitivity_sectors = ["Real Estate", "Utilities", "Telecommunications Services"]
     moderate_sensitivity_sectors = ["Energy", "Financials"]
@@ -99,6 +100,22 @@ def evaluate_interest_rate_sensitivity(sector, debt_to_equity):
     else:
         return base_sensitivity
 
+# Flask set up
 
-# Example usage
-evaluate_stock(input("Which company are you considering investing in? "))  # Replace with the stock symbol of interest
+app = Flask(__name__)
+
+@app.route('/', methods=['GET'])
+def index():
+    return render_template('index.html')
+
+@app.route('/evaluate', methods=['POST'])
+def evaluate_stock_route():
+    company_name = request.json['company_name']
+    evaluation_result = evaluate_stock(company_name)
+    if evaluation_result is None:
+        return jsonify({'error': 'An error occurred while evaluating the stock.'}), 500
+    else:
+        return jsonify({'evaluation': evaluation_result})
+
+if __name__ == '__main__':
+    app.run(debug=True)

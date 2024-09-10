@@ -4,4 +4,7 @@
     <option name="sdkName" value="python_3.11_env" />
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="python_3.11_env" project-jdk-type="Python SDK" />
+  <component name="PyCharmProfessionalAdvertiser">
+    <option name="shown" value="true" />
+  </component>
 </project>

@@ -1,68 +1,35 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Stock Dashboard</title>
-    <style>
-        body {
-            font-family: sans-serif;
-        }
-
-        .container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-
-        .card {
-            border: 1px solid #ccc;
-            padding: 20px;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-
-        h2 {
-            margin-bottom: 10px;
-        }
-
-        .chart-container {
-            width: 100%;
-            height: 400px;
-        }
-
-        img {
-            max-width: 100%;
-            height: auto;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <title>Investment Assistant</title>
+    <!-- Include Bootstrap CSS -->
+    <link
+      rel="stylesheet"
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+    />
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <h2>Stock Dashboard</h2>
-            <form method="POST" action="/">
-                <label for="company_name">Company Name:</label><br>
-                <input type="text" id="company_name" name="company_name"><br><br>
-                <input type="submit" value="Analyze">
-            </form>
-            <br>
-            {% if company_name %}
-                <h3>{{ company_name }}</h3>
-                <div class="chart-container">
-                    <img src="data:image/png;base64,{{ price_chart }}" alt="Stock Price Chart">
-                </div>
-                <h4>Financial Metrics:</h4>
-                <ul>
-                    <li>Sector: {{ info.sector }}</li>
-                    <li>Trailing P/E Ratio: {{ info.trailingPE }}</li>
-                    <li>Return on Equity: {{ info.returnOnEquity }}</li>
-                    <li>Debt to Equity Ratio: {{ info.debtToEquity }}</li>
-                </ul>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4">Investment Assistant</h1>
 
-                <h4>Advisor's Insight:</h4>
-                <p>{{ advisor_description }}</p>
-            {% endif %}
-        </div>
+        {% if error %}
+            <div class="alert alert-danger" role="alert">
+                {{ error }}
+            </div>
+        {% endif %}
+
+        <form method="post">
+            <div class="form-group">
+                <label for="ticker">Company Ticker Symbol (e.g., 'AAPL'):</label>
+                <input type="text" id="ticker" name="ticker" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="company_number">Companies House Company Number:</label>
+                <input type="text" id="company_number" name="company_number" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Generate Report</button>
+        </form>
     </div>
 </body>
 </html>

@@ -1,455 +1,268 @@
-from flask import Flask, request, jsonify, render_template, Blueprint
+from flask import Flask, render_template, request
 import yfinance as yf
-import matplotlib.pyplot as plt
-import io
-import base64
-import pandas as pd
+import requests
+from openai import OpenAI
+from dotenv import load_dotenv
+import os
 
-# Flask set up
+load_dotenv()
+
+# Load API keys from environment variables
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+COMPANIES_HOUSE_API_KEY = os.getenv('COMPANIES_HOUSE_API_KEY')
+NEWS_API_KEY = os.getenv('NEWS_API_KEY')  # Optional if you continue using News API
+
+# Initialize the OpenAI client
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 app = Flask(__name__)
-# Create a blueprint for static files
-blueprint_static = Blueprint('static', __name__, static_folder='static')
-app.register_blueprint(blueprint_static)
 
-def get_stock_data(company_name):
-    """
-    Fetches stock data using yfinance.
-    """
+# Custom filter to handle newlines in templates
+def nl2br(value):
+    if value is None:
+        return ''
+    return value.replace('\n', '<br>\n')
+
+app.jinja_env.filters['nl2br'] = nl2br
+
+# Formatting filters for currency and numbers
+def format_currency(value):
+    if value is None or value == 'N/A':
+        return 'N/A'
     try:
-        stock = yf.Ticker(company_name)
+        value = float(value)
+        return f"${value:,.2f}"
+    except (ValueError, TypeError):
+        return value
+
+def format_number(value):
+    if value is None or value == 'N/A':
+        return 'N/A'
+    try:
+        return f"{float(value):,.2f}"
+    except (ValueError, TypeError):
+        return value
+
+app.jinja_env.filters['currency'] = format_currency
+app.jinja_env.filters['number'] = format_number
+
+def get_financial_data(ticker):
+    try:
+        print(f"Fetching data for ticker: {ticker}")
+        stock = yf.Ticker(ticker)
         info = stock.info
-        history = stock.history(period="5y")  # Adjust the period as needed
-        balance_sheet = stock.balance_sheet
-        cashflow = stock.cashflow
-        income_statement = stock.financials
-        return info, history, balance_sheet, cashflow, income_statement
+        if not info:
+            print("No data found for the ticker.")
+            return {}
+        financial_data = {
+            'company_name': info.get('longName', 'N/A'),
+            'summary': info.get('longBusinessSummary', 'N/A'),
+            'sector': info.get('sector', 'N/A'),
+            'industry': info.get('industry', 'N/A'),
+            'market_cap': info.get('marketCap', 'N/A'),
+            'beta': info.get('beta', 'N/A'),
+            'pe_ratio': info.get('trailingPE', 'N/A'),
+            'eps': info.get('trailingEps', 'N/A'),
+            'dividend_yield': info.get('dividendYield', 'N/A'),
+        }
+        return financial_data
     except Exception as e:
-        return None, f"Error: Unable to retrieve data for '{company_name}': {e}"
+        print(f"Exception in get_financial_data: {e}")
+        return {}
 
-def generate_price_chart(history):
-    """
-    Generates a line chart of stock prices.
-    """
-    plt.figure(figsize=(10, 5))
-    plt.plot(history['Close'])
-    plt.title('Stock Price History')
-    plt.xlabel('Date')
-    plt.ylabel('Closing Price')
+def retrieve_legal_info(company_name, company_number, api_keys):
+    # Fetch legal filings from Companies House
+    legal_summary_ch = retrieve_legal_info_from_companies_house(company_number, api_keys['companies_house'])
+    # Optionally, fetch recent legal news
+    # legal_summary_news = get_recent_news(company_name, api_keys['news_api'])
+    
+    # Combine summaries
+    legal_summary = f"**Companies House Legal Filings:**\n{legal_summary_ch}"
+    # If using News API:
+    # legal_summary = f"**Companies House Legal Filings:**\n{legal_summary_ch}\n\n**Recent Legal News:**\n{legal_summary_news}"
+    return legal_summary
 
-    # Convert the plot to a base64 encoded image
-    img = io.BytesIO()
-    plt.savefig(img, format='png')
-    img.seek(0)
-    chart_data = base64.b64encode(img.getvalue()).decode('utf-8')
-    plt.close()  # Close the plot to avoid memory leaks
-    return chart_data
-
-def evaluate_stock(company_name):
-    """
-    Evaluates a stock's potential as a long-term investment.
-    """
-    info, history, balance_sheet, cashflow, income_statement = get_stock_data(company_name)
-
-    if info is None:
-        return info, history, "Error: Unable to retrieve data for this stock."  # Return an error message
-
-    # Extract necessary financial metrics
-    debt_to_equity = info.get("debtToEquity", None)
-    roe = info.get("returnOnEquity", None)
-    sector = info.get("sector", None)
-    pe_ratio = info.get("trailingPE", None)
-
-    # Calculate additional metrics
-    revenue_growth_yoy = calculate_revenue_growth_yoy(income_statement)
-    cagr = calculate_cagr(income_statement)
-    net_profit_margin = calculate_net_profit_margin(income_statement)
-    free_cash_flow = calculate_free_cash_flow(cashflow)
-    roa = calculate_roa(income_statement, balance_sheet)
-    rd_spending_percentage = calculate_rd_spending_percentage(income_statement)
-    price_to_book = calculate_price_to_book(info)
-    asset_turnover = calculate_asset_turnover(income_statement, balance_sheet)
-    financial_leverage = calculate_financial_leverage(balance_sheet)
-    debt_to_assets_ratio = calculate_debt_to_assets_ratio(balance_sheet)
-    interest_coverage_ratio = calculate_interest_coverage_ratio(income_statement, balance_sheet)
-    leverage_ratio = calculate_leverage_ratio(balance_sheet)
-    net_debt = calculate_net_debt(balance_sheet, info)
-    debt_service_coverage_ratio = calculate_debt_service_coverage_ratio(cashflow, balance_sheet)
-    free_cash_flow_to_debt = calculate_free_cash_flow_to_debt(cashflow, balance_sheet)
-
-    # Evaluate interest rate sensitivity
-    interest_rate_sensitivity = evaluate_interest_rate_sensitivity(sector, debt_to_equity)
-
-    return (
-        info,
-        history,
-        pe_ratio,
-        roe,
-        debt_to_equity,
-        interest_rate_sensitivity,
-        revenue_growth_yoy,
-        cagr,
-        net_profit_margin,
-        free_cash_flow,
-        roa,
-        rd_spending_percentage,
-        price_to_book,
-        asset_turnover,
-        financial_leverage,
-        debt_to_assets_ratio,
-        interest_coverage_ratio,
-        leverage_ratio,
-        net_debt,
-        debt_service_coverage_ratio,
-        free_cash_flow_to_debt
-    )
-
-def evaluate_interest_rate_sensitivity(sector, debt_to_equity):
-    """
-    Estimates a company's sensitivity to interest rate changes based on sector and debt-to-equity ratio.
-    """
-    # Basic sector-based sensitivity (adjust as needed)
-    high_sensitivity_sectors = ["Real Estate", "Utilities", "Telecommunications Services"]
-    moderate_sensitivity_sectors = ["Energy", "Financials"]
-
-    if sector in high_sensitivity_sectors:
-        base_sensitivity = "High"
-    elif sector in moderate_sensitivity_sectors:
-        base_sensitivity = "Moderate"
-    else:
-        base_sensitivity = "Low"
-
-    # Factor in debt-to-equity ratio (adjust as needed)
-    if debt_to_equity is not None and debt_to_equity > 1.0:  # Example: Debt-to-equity ratio above 1.0 increases sensitivity
-        if base_sensitivity == "High":
-            return "Very High"
+def retrieve_legal_info_from_companies_house(company_number, api_key):
+    base_url = f'https://api.company-information.service.gov.uk/company/{company_number}/filing-history'
+    response = requests.get(base_url, auth=(api_key, ''))
+    
+    if response.status_code == 200:
+        filings = response.json().get('items', [])
+        legal_issues = []
+        
+        for filing in filings:
+            description = filing.get('description', '')
+            if 'legal' in description.lower() or 'court' in description.lower() or 'settlement' in description.lower():
+                legal_issues.append(description)
+        
+        if legal_issues:
+            legal_summary = "\n".join(legal_issues)
         else:
-            return "High"
+            legal_summary = "No significant legal filings found."
     else:
-        return base_sensitivity
+        legal_summary = "Unable to retrieve legal information from Companies House."
+    
+    return legal_summary
 
-def generate_advisor_description(info, pe_ratio, roe, debt_to_equity, interest_rate_sensitivity, revenue_growth_yoy, cagr, net_profit_margin, free_cash_flow, roa, rd_spending_percentage, price_to_book, asset_turnover, financial_leverage, debt_to_assets_ratio, interest_coverage_ratio, leverage_ratio, net_debt, debt_service_coverage_ratio, free_cash_flow_to_debt):
-    """
-    Generates a financial advisor-like description based on the evaluation results.
-    """
-    description = ""
+def generate_ai_summary(financial_data, legal_summary):
+    # Replace None values with 'N/A'
+    for key, value in financial_data.items():
+        if value is None:
+            financial_data[key] = 'N/A'
 
-    # P/E Ratio
-    if pe_ratio is not None:
-        description += f"The company's P/E ratio is {pe_ratio:.2f}. "
+    messages = [
+        {"role": "system", "content": "You are a financial analyst assistant specializing in UK company data."},
+        {"role": "user", "content": f"""
+Provide a concise and professional summary for the following UK company, focusing on financial health and key information from Companies House filings:
 
-    # ROE
-    if roe is not None:
-        description += f"The company's Return on Equity is {roe:.2f}%. "
+**Company Name**: {financial_data.get('company_name')}
+**Sector**: {financial_data.get('sector')}
+**Industry**: {financial_data.get('industry')}
 
-    # Interest Rate Sensitivity
-    description += f"The company's sensitivity to interest rate changes is {interest_rate_sensitivity}. "
+**Financial Summary**:
+{financial_data.get('summary')}
 
-    # Debt-to-Equity Ratio
-    if debt_to_equity is not None:
-        description += f"The Debt-to-Equity ratio is {debt_to_equity:.2f}. "
+**Key Financial Metrics**:
+- Market Cap: {financial_data.get('market_cap')}
+- Beta: {financial_data.get('beta')}
+- P/E Ratio: {financial_data.get('pe_ratio')}
+- EPS: {financial_data.get('eps')}
+- Dividend Yield: {financial_data.get('dividend_yield')}
 
-    # Revenue Growth
-    if revenue_growth_yoy is not None:
-        description += f"The company's revenue has grown {revenue_growth_yoy:.2f}% year-over-year. "
-    if cagr is not None:
-        description += f"The company's Compound Annual Growth Rate (CAGR) is {cagr:.2f}%. "
+**Legal Issues**:
+{legal_summary}
 
-    # Net Profit Margin
-    if net_profit_margin is not None:
-        description += f"The company's Net Profit Margin is {net_profit_margin:.2f}%. This indicates its profitability relative to revenue. "
+**Instructions**: Summarize the financial health of the company and highlight the key information from Companies House filings, discussing any potential impacts on the company's operations, revenue, and profit.
+"""}
+    ]
 
-    # Free Cash Flow
-    if free_cash_flow is not None:
-        description += f"The company's Free Cash Flow is {free_cash_flow:.2f}. "
-
-    # ROA
-    if roa is not None:
-        description += f"The company's Return on Assets is {roa:.2f}%. "
-
-    # R&D Spending
-    if rd_spending_percentage is not None:
-        description += f"The company spends {rd_spending_percentage:.2f}% of its revenue on research and development. "
-
-    # Price-to-Book
-    if price_to_book is not None:
-        description += f"The company's Price-to-Book ratio is {price_to_book:.2f}. "
-
-    # Asset Turnover
-    if asset_turnover is not None:
-        description += f"The company's Asset Turnover ratio is {asset_turnover:.2f}. "
-
-    # Financial Leverage
-    if financial_leverage is not None:
-        description += f"The company's Financial Leverage is {financial_leverage:.2f}. "
-
-    # Debt-to-Assets Ratio
-    if debt_to_assets_ratio is not None:
-        description += f"The company's Debt-to-Assets Ratio is {debt_to_assets_ratio:.2f}. "
-
-    # Interest Coverage Ratio
-    if interest_coverage_ratio is not None:
-        description += f"The company's Interest Coverage Ratio is {interest_coverage_ratio:.2f}. "
-
-    # Leverage Ratio
-    if leverage_ratio is not None:
-        description += f"The company's Leverage Ratio is {leverage_ratio:.2f}. "
-
-    # Net Debt
-    if net_debt is not None:
-        description += f"The company's Net Debt is {net_debt:.2f}. "
-
-    # Debt Service Coverage Ratio
-    if debt_service_coverage_ratio is not None:
-        description += f"The company's Debt Service Coverage Ratio is {debt_service_coverage_ratio:.2f}. "
-
-    # Free Cash Flow to Debt
-    if free_cash_flow_to_debt is not None:
-        description += f"The company's Free Cash Flow to Debt ratio is {free_cash_flow_to_debt:.2f}. "
-
-    return description
-
-def calculate_revenue_growth_yoy(income_statement):
-    """
-    Calculates the year-over-year revenue growth rate.
-    """
     try:
-        current_revenue = income_statement.iloc[-1]['Total Revenue']
-        previous_revenue = income_statement.iloc[-2]['Total Revenue']
-        growth_yoy = ((current_revenue - previous_revenue) / previous_revenue) * 100
-        return growth_yoy
-    except:
-        return None
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",  # Or "gpt-4" if you have access
+            messages=messages,
+            max_tokens=500,
+            temperature=0.5,
+        )
 
-def calculate_cagr(income_statement):
-    """
-    Calculates the Compound Annual Growth Rate (CAGR).
-    """
-    try:
-        start_revenue = income_statement.iloc[0]['Total Revenue']
-        end_revenue = income_statement.iloc[-1]['Total Revenue']
-        years = len(income_statement)
-        cagr = ((end_revenue / start_revenue) ** (1 / years) - 1) * 100
-        return cagr
-    except:
-        return None
+        ai_summary = response.choices[0].message.content.strip()
+        return ai_summary
+    except Exception as e:
+        print(f"Exception in generate_ai_summary: {e}")
+        return "Error generating AI summary."
 
-def calculate_net_profit_margin(income_statement):
-    """
-    Calculates the Net Profit Margin.
-    """
-    try:
-        net_income = income_statement.iloc[-1]['Net Income']
-        revenue = income_statement.iloc[-1]['Total Revenue']
-        net_profit_margin = (net_income / revenue) * 100
-        return net_profit_margin
-    except:
-        return None
+def get_tickers_by_sector(sector):
+    # This function should return a list of ticker symbols in the same sector
+    # For demonstration purposes, we'll use a static list
+    # In a real application, you might query an API or database
+    sector_tickers = {
+        'Technology': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META'],
+        'Financial Services': ['JPM', 'BAC', 'WFC', 'C', 'GS'],
+        # Add more sectors and their tickers as needed
+    }
+    return sector_tickers.get(sector, [])
 
-def calculate_free_cash_flow(cashflow):
-    """
-    Calculates the Free Cash Flow (FCF).
-    """
-    try:
-        operating_cash_flow = cashflow.iloc[-1]['Total Cash From Operating Activities']
-        capital_expenditures = cashflow.iloc[-1]['Capital Expenditures']
-        free_cash_flow = operating_cash_flow - capital_expenditures
-        return free_cash_flow
-    except:
-        return None
+def get_sector_averages(sector):
+    # Fetch data for multiple companies in the same sector
+    sector_tickers = get_tickers_by_sector(sector)
+    
+    if not sector_tickers:
+        print(f"No tickers found for sector: {sector}")
+        # Initialize all metrics to 'N/A'
+        return {
+            'market_cap': 'N/A',
+            'beta': 'N/A',
+            'pe_ratio': 'N/A',
+            'eps': 'N/A',
+            'dividend_yield': 'N/A'
+        }
 
-def calculate_roa(income_statement, balance_sheet):
-    """
-    Calculates the Return on Assets (ROA).
-    """
-    try:
-        net_income = income_statement.iloc[-1]['Net Income']
-        total_assets = balance_sheet.iloc[-1]['Total Assets']
-        roa = (net_income / total_assets) * 100
-        return roa
-    except:
-        return None
+    metrics = {
+        'market_cap': [],
+        'beta': [],
+        'pe_ratio': [],
+        'eps': [],
+        'dividend_yield': []
+    }
 
-def calculate_rd_spending_percentage(income_statement):
-    """
-    Calculates R&D Spending as a Percentage of Revenue.
-    """
-    try:
-        rd_spending = income_statement.iloc[-1]['Research Development']
-        revenue = income_statement.iloc[-1]['Total Revenue']
-        rd_spending_percentage = (rd_spending / revenue) * 100
-        return rd_spending_percentage
-    except:
-        return None
+    for ticker in sector_tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            metrics['market_cap'].append(info.get('marketCap', 0) or 0)
+            metrics['beta'].append(info.get('beta', 0) or 0)
+            metrics['pe_ratio'].append(info.get('trailingPE', 0) or 0)
+            metrics['eps'].append(info.get('trailingEps', 0) or 0)
+            metrics['dividend_yield'].append(info.get('dividendYield', 0) or 0)
+        except Exception as e:
+            print(f"Error retrieving data for {ticker}: {e}")
+            continue
 
-def calculate_price_to_book(info):
-    """
-    Calculates the Price-to-Book (P/B) Ratio.
-    """
-    try:
-        price_to_book = info.get("priceToBook", None)
-        return price_to_book
-    except:
-        return None
+    sector_averages = {}
+    for key, values in metrics.items():
+        # Filter out None or zero values to avoid skewed averages
+        valid_values = [v for v in values if v > 0]
+        if valid_values:
+            sector_averages[key] = sum(valid_values) / len(valid_values)
+        else:
+            sector_averages[key] = 'N/A'
 
-def calculate_asset_turnover(income_statement, balance_sheet):
-    """
-    Calculates Asset Turnover (Efficiency).
-    """
-    try:
-        revenue = income_statement.iloc[-1]['Total Revenue']
-        total_assets = balance_sheet.iloc[-1]['Total Assets']
-        asset_turnover = revenue / total_assets
-        return asset_turnover
-    except:
-        return None
+    # Ensure all keys are present
+    for key in ['market_cap', 'beta', 'pe_ratio', 'eps', 'dividend_yield']:
+        if key not in sector_averages:
+            sector_averages[key] = 'N/A'
 
-def calculate_financial_leverage(balance_sheet):
-    """
-    Calculates Financial Leverage.
-    """
-    try:
-        total_assets = balance_sheet.iloc[-1]['Total Assets']
-        shareholders_equity = balance_sheet.iloc[-1]['Total Stockholder Equity']
-        financial_leverage = total_assets / shareholders_equity
-        return financial_leverage
-    except:
-        return None
-
-def calculate_debt_to_assets_ratio(balance_sheet):
-    """
-    Calculates the Debt-to-Assets Ratio.
-    """
-    try:
-        total_debt = balance_sheet.iloc[-1]['Total Debt']
-        total_assets = balance_sheet.iloc[-1]['Total Assets']
-        debt_to_assets_ratio = total_debt / total_assets
-        return debt_to_assets_ratio
-    except:
-        return None
-
-def calculate_interest_coverage_ratio(income_statement, balance_sheet):
-    """
-    Calculates the Interest Coverage Ratio.
-    """
-    try:
-        ebit = income_statement.iloc[-1]['Ebit']
-        interest_expense = balance_sheet.iloc[-1]['Interest Expense']
-        interest_coverage_ratio = ebit / interest_expense
-        return interest_coverage_ratio
-    except:
-        return None
-
-def calculate_leverage_ratio(balance_sheet):
-    """
-    Calculates the Leverage Ratio.
-    """
-    try:
-        total_assets = balance_sheet.iloc[-1]['Total Assets']
-        total_equity = balance_sheet.iloc[-1]['Total Stockholder Equity']
-        leverage_ratio = total_assets / total_equity
-        return leverage_ratio
-    except:
-        return None
-
-def calculate_net_debt(balance_sheet, info):
-    """
-    Calculates Net Debt.
-    """
-    try:
-        total_debt = balance_sheet.iloc[-1]['Total Debt']
-        cash_and_equivalents = info.get("totalCash", None)
-        net_debt = total_debt - cash_and_equivalents
-        return net_debt
-    except:
-        return None
-
-def calculate_debt_service_coverage_ratio(cashflow, balance_sheet):
-    """
-    Calculates the Debt Service Coverage Ratio (DSCR).
-    """
-    try:
-        net_operating_income = cashflow.iloc[-1]['Total Cash From Operating Activities']
-        total_debt_service = balance_sheet.iloc[-1]['Interest Expense']
-        debt_service_coverage_ratio = net_operating_income / total_debt_service
-        return debt_service_coverage_ratio
-    except:
-        return None
-
-def calculate_free_cash_flow_to_debt(cashflow, balance_sheet):
-    """
-    Calculates Free Cash Flow to Debt.
-    """
-    try:
-        free_cash_flow = calculate_free_cash_flow(cashflow)
-        total_debt = balance_sheet.iloc[-1]['Total Debt']
-        free_cash_flow_to_debt = free_cash_flow / total_debt
-        return free_cash_flow_to_debt
-    except:
-        return None
+    return sector_averages
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        company_name = request.form['company_name']
-        (
-            info,
-            history,
-            pe_ratio,
-            roe,
-            debt_to_equity,
-            interest_rate_sensitivity,
-            revenue_growth_yoy,
-            cagr,
-            net_profit_margin,
-            free_cash_flow,
-            roa,
-            rd_spending_percentage,
-            price_to_book,
-            asset_turnover,
-            financial_leverage,
-            debt_to_assets_ratio,
-            interest_coverage_ratio,
-            leverage_ratio,
-            net_debt,
-            debt_service_coverage_ratio,
-            free_cash_flow_to_debt
-        ) = evaluate_stock(company_name)
-        # Generate the price chart
-        price_chart = generate_price_chart(history)
-        # Pass the data to the template
-        advisor_description = generate_advisor_description(
-            info,
-            pe_ratio,
-            roe,
-            debt_to_equity,
-            interest_rate_sensitivity,
-            revenue_growth_yoy,
-            cagr,
-            net_profit_margin,
-            free_cash_flow,
-            roa,
-            rd_spending_percentage,
-            price_to_book,
-            asset_turnover,
-            financial_leverage,
-            debt_to_assets_ratio,
-            interest_coverage_ratio,
-            leverage_ratio,
-            net_debt,
-            debt_service_coverage_ratio,
-            free_cash_flow_to_debt
-        )
+        company_ticker = request.form.get('ticker', '').upper().strip()
+        company_number = request.form.get('company_number', '').strip()
 
-        # You don't seem to need `evaluation_result` in your code
+        print(f"Received form data: {request.form}")
+        print(f"Received ticker: {company_ticker}")
+        print(f"Received company number: {company_number}")
+
+        if not company_ticker or not company_number:
+            error = "Please provide both the company ticker and company number."
+            return render_template('index.html', error=error)
+
+        api_keys = {
+            'companies_house': COMPANIES_HOUSE_API_KEY,
+            'news_api': NEWS_API_KEY,  # Optional
+            'openai': OPENAI_API_KEY
+        }
+
+        financial_data = get_financial_data(company_ticker)
+        if not financial_data.get('company_name') or financial_data.get('company_name') == 'N/A':
+            error = "Error retrieving financial data. Please check the ticker symbol."
+            return render_template('index.html', error=error)
+
+        legal_summary = retrieve_legal_info(financial_data['company_name'], company_number, api_keys)
+        ai_summary = generate_ai_summary(financial_data, legal_summary)
+
+        # Get sector averages
+        sector = financial_data.get('sector')
+        if sector and sector != 'N/A':
+            sector_averages = get_sector_averages(sector)
+        else:
+            sector_averages = {
+                'market_cap': 'N/A',
+                'beta': 'N/A',
+                'pe_ratio': 'N/A',
+                'eps': 'N/A',
+                'dividend_yield': 'N/A'
+            }
+
         return render_template(
-            'index.html',
-            company_name=company_name,
-            price_chart=price_chart,
-            info=info,
-            advisor_description=advisor_description
+            'report.html',
+            summary=ai_summary,
+            financial_data=financial_data,
+            sector_averages=sector_averages,
+            legal_summary=legal_summary  # Ensure this is passed
         )
     else:
         return render_template('index.html')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5002)
